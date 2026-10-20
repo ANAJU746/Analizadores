@@ -1,0 +1,4 @@
+1 int x = 10
+2 if (x > 5 {
+3     print("Hola");
+4 }p

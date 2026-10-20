@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analizador Léxico y Sintáctico - TecNM / ITVH</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/codemirror.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dracula.min.css') }}">
+    <script src="{{ url_for('static', filename='js/codemirror.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/clike.min.js') }}"></script>
+
+    <style>
+        @font-face {
+            font-family: 'Poppins';
+            src: url("{{ url_for('static', filename='fonts/poppins-regular.ttf') }}") format('truetype');
+            font-weight: 400;
+            font-style: normal;
+        }
+
+        @font-face {
+            font-family: 'Poppins';
+            src: url("{{ url_for('static', filename='fonts/poppins-bold.ttf') }}") format('truetype');
+            font-weight: 700;
+            font-style: normal;
+        }
+
+        @font-face {
+            font-family: 'Fira Code';
+            src: url("{{ url_for('static', filename='fonts/firacode-regular.ttf') }}") format('truetype');
+            font-weight: 400;
+            font-style: normal;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            background-color: #020204; 
+            height: 100%; overflow: hidden; 
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(-45deg, #000000, #090514, #030305, #120924, #000000);
+            background-size: 400% 400%; 
+            animation: gradientBG 28s ease-in-out infinite;
+            color: #f8fafc; display: flex; flex-direction: column; position: relative;
+        }   
+
+        @keyframes gradientBG { 
+            0% { background-position: 0% 50%; } 
+            50% { background-position: 100% 50%; } 
+            100% { background-position: 0% 50%; } 
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes slideInDown { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        @keyframes floatUp { 0% { transform: translateY(100vh); opacity: 0; } 20% { opacity: 0.22; } 80% { opacity: 0.22; } 100% { transform: translateY(-10vh); opacity: 0; } }
+        @keyframes watermarkPulse { 0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.03; } 50% { transform: translate(-50%, -52%) scale(1.04); opacity: 0.05; } }
+
+        .particles { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; }
+        .particle { position: absolute; color: rgba(168, 85, 247, 0.22); font-family: 'Fira Code', monospace; font-size: 24px; font-weight: bold; animation: floatUp 18s linear infinite; }
+        .bg-watermark { position: fixed; top: 50%; left: 50%; width: 50vw; max-width: 600px; z-index: -1; pointer-events: none; animation: watermarkPulse 14s infinite ease-in-out; filter: grayscale(100%) brightness(200%); }
+
+        header {
+            background: linear-gradient(90deg, rgba(28, 12, 54, 0.85), rgba(15, 7, 30, 0.85));
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border-bottom: 2px solid rgba(168, 85, 247, 0.4); 
+            padding: 12px 40px; position: sticky; top: 0; z-index: 100; 
+            box-shadow: 0 4px 30px rgba(88, 28, 135, 0.25);
+            animation: slideInDown 0.6s ease-out;
+        }
+        .header-content { max-width: 1700px; margin: 0 auto; display: flex; align-items: center; gap: 20px; }
+        .header-logo { height: 60px; width: auto; filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.3)); transition: transform 0.3s; }
+        .header-logo:hover { transform: scale(1.05); }
+        .header-text h1 { 
+            font-size: 24px; font-weight: 700; 
+            background: linear-gradient(90deg, #c084fc, #a855f7, #f8fafc); 
+            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; 
+            letter-spacing: -0.5px; 
+        }
+        .subtitle { color: #cbd5e1; font-size: 13px; font-weight: 300; letter-spacing: 0.5px; }
+
+        .container {
+            display: grid; grid-template-columns: 320px 1fr 1.2fr; gap: 24px; max-width: 1800px; margin: 0 auto; width: 100%; padding: 24px;
+            flex: 1; animation: fadeIn 0.8s ease-out 0.2s both; min-height: 0; height: calc(100vh - 85px);
+        }
+
+        .panel {
+            background: rgba(12, 8, 22, 0.65); 
+            backdrop-filter: blur(16px); 
+            border: 1px solid rgba(168, 85, 247, 0.18); 
+            border-radius: 16px; 
+            display: flex; flex-direction: column; height: 100%; overflow: hidden; 
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6); transition: 0.4s;
+        }
+        .panel:hover { 
+            box-shadow: 0 20px 45px rgba(88, 28, 135, 0.25); 
+            border-color: rgba(168, 85, 247, 0.45); 
+        }
+
+        .panel-header { 
+            background: linear-gradient(90deg, rgba(76, 29, 149, 0.55), rgba(46, 16, 101, 0.4)); 
+            padding: 15px 20px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; 
+            border-bottom: 1px solid rgba(168, 85, 247, 0.3); 
+            display: flex; align-items: center; justify-content: space-between; 
+            color: #f3e8ff; 
+        }
+        .panel-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; position: relative; }
+        
+        .panel-body::-webkit-scrollbar { width: 6px; }
+        .panel-body::-webkit-scrollbar-track { background: transparent; }
+        .panel-body::-webkit-scrollbar-thumb { background: rgba(168, 85, 247, 0.4); border-radius: 10px; }
+
+        .example-card { background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(168, 85, 247, 0.15); border-radius: 10px; padding: 15px; margin-bottom: 12px; cursor: pointer; position: relative; overflow: hidden; transition: all 0.3s ease; }
+        .example-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: #a855f7; transform: scaleY(0); transition: transform 0.3s ease; transform-origin: bottom; }
+        .example-card:hover { background: rgba(168, 85, 247, 0.1); transform: translateX(8px); border-color: rgba(168, 85, 247, 0.45); }
+        .example-card:hover::before { transform: scaleY(1); }
+        .example-card h4 { color: #c084fc; font-size: 14px; margin-bottom: 4px; font-weight: 600; }
+        .example-card p { color: #cbd5e1; font-size: 11px; line-height: 1.5; }
+
+        .editor-form { display: flex; flex-direction: column; height: 100%; }
+        .CodeMirror, .cm-s-dracula.CodeMirror {
+            flex: 1; width: 100%; margin-bottom: 16px; border-radius: 12px;
+            font-family: 'Fira Code', 'Consolas', monospace; font-size: 14px; line-height: 1.6;
+            background: rgba(0, 0, 0, 0.35) !important; border: 1px solid rgba(168, 85, 247, 0.2); transition: 0.3s;
+        }
+        .CodeMirror-focused { border-color: #a855f7; box-shadow: 0 0 15px rgba(168, 85, 247, 0.25); background: rgba(0, 0, 0, 0.5) !important; }
+        .CodeMirror-gutters, .cm-s-dracula .CodeMirror-gutters { background: transparent !important; border-right: 1px solid rgba(168, 85, 247, 0.15) !important; }
+        .CodeMirror-selected { background: rgba(168, 85, 247, 0.4) !important; }
+        .CodeMirror-activeline-background { background: rgba(168, 85, 247, 0.06) !important; }
+
+        .button-group { display: flex; gap: 10px; margin-top: auto; }
+        button { padding: 12px; border: none; border-radius: 10px; font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.3s; display: flex; justify-content: center; align-items: center; gap: 8px; }
+        .btn-analyze { flex: 2; background: linear-gradient(135deg, #7e22ce, #6b21a8); color: white; box-shadow: 0 4px 15px rgba(126, 34, 206, 0.4); }
+        .btn-analyze:hover { background: linear-gradient(135deg, #9333ea, #7e22ce); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(147, 51, 234, 0.6); }
+        .btn-analyze:active { transform: translateY(0); }
+        .btn-action { flex: 1; background: rgba(168, 85, 247, 0.1); color: #e9d5ff; border: 1px solid rgba(168, 85, 247, 0.25); }
+        .btn-action:hover { background: rgba(168, 85, 247, 0.22); }
+        .btn-export { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); padding: 6px 12px; border-radius: 6px; font-size: 11px; letter-spacing: 0.5px; }
+        .btn-export:hover { background: rgba(16, 185, 129, 0.4); color: white; }
+        .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: white; animation: spin 1s linear infinite; display: none; }
+
+        .statistics { display: flex; gap: 12px; margin-bottom: 10px; flex-shrink: 0; }
+        .stat-box { flex: 1; background: rgba(20, 10, 38, 0.6); border: 1px solid rgba(168, 85, 247, 0.15); padding: 12px; border-radius: 12px; border-top: 3px solid #a855f7; text-align: center; }
+        .stat-value { font-weight: 700; font-size: 22px; color: #f8fafc; }
+        .stat-label { color: #cbd5e1; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-top: 2px; }
+        .error-box { border-top-color: #ef4444; }
+
+        .detailed-stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 15px; flex-shrink: 0; }
+        .detail-badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.35); color: #cbd5e1; }
+
+        .filter-bar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; flex-shrink: 0; align-items: center; justify-content: space-between; }
+        .filter-group { display: flex; gap: 6px; flex-wrap: wrap; }
+        .filter-btn { padding: 6px 10px; background: rgba(20, 10, 38, 0.7); border: 1px solid rgba(168, 85, 247, 0.2); border-radius: 6px; color: #cbd5e1; font-size: 10px; font-weight: 600; cursor: pointer; transition: 0.2s; text-transform: uppercase; }
+        .filter-btn:hover { background: rgba(168, 85, 247, 0.25); color: white; }
+        
+        .filter-btn.active[data-filter="all"] { background: #9333ea; color: white; border-color: #c084fc; }
+        .filter-btn.active[data-filter="keyword"] { background: rgba(59, 130, 246, 0.8); color: white; border-color: #93c5fd; }
+        .filter-btn.active[data-filter="identifier"] { background: rgba(192, 132, 252, 0.8); color: white; border-color: #d8b4fe; } 
+        .filter-btn.active[data-filter="literal"] { background: rgba(34, 197, 94, 0.8); color: white; border-color: #86efac; }
+        .filter-btn.active[data-filter="operator"] { background: rgba(245, 158, 11, 0.8); color: white; border-color: #fcd34d; }
+        .filter-btn.active[data-filter="delimiter"] { background: rgba(148, 163, 184, 0.8); color: white; border-color: #e2e8f0; }
+        .filter-btn.active[data-filter="error"] { background: rgba(239, 68, 68, 0.8); color: white; border-color: #fca5a5; }
+
+        .table-container { background: rgba(10, 6, 20, 0.6); border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.15); flex: 1; overflow-y: auto; position: relative; }
+        .table-container::-webkit-scrollbar { width: 6px; }
+        .table-container::-webkit-scrollbar-track { background: transparent; }
+        .table-container::-webkit-scrollbar-thumb { background: rgba(168, 85, 247, 0.4); border-radius: 10px; }
+
+        .tokens-table { width: 100%; border-collapse: collapse; text-align: left; }
+        .tokens-table th { position: sticky; top: 0; z-index: 10; background: rgba(35, 15, 65, 0.95); padding: 12px 15px; font-size: 11px; text-transform: uppercase; color: #e9d5ff; border-bottom: 1px solid rgba(168, 85, 247, 0.25); backdrop-filter: blur(5px); }
+        .tokens-table tr { transition: background-color 0.2s; cursor: pointer; }
+        .tokens-table td { padding: 10px 15px; border-bottom: 1px solid rgba(255, 255, 255, 0.04); font-size: 13px; font-family: 'Fira Code', monospace; }
+        .tokens-table tbody tr:hover { background: rgba(168, 85, 247, 0.18) !important; }
+
+        .tag { padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; font-family: 'Poppins', sans-serif; display: inline-block;}
+        .tag-keyword { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.3); }
+        .tag-identifier { background: rgba(192, 132, 252, 0.2); color: #e879f9; border: 1px solid rgba(192, 132, 252, 0.3); } 
+        .tag-literal { background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.3); }
+        .tag-operator { background: rgba(245, 158, 11, 0.2); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.3); }
+        .tag-delimiter { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid rgba(148, 163, 184, 0.3); }
+        .tag-error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3); }
+
+        @media (max-width: 1200px) {
+            html, body { overflow: auto; height: auto; }
+            .container { grid-template-columns: 1fr; height: auto; }
+            .table-container { min-height: 400px; }
+            .bg-watermark, .particles { display: none; }
+        }
+        
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 2, 12, 0.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            z-index: 1000; justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background: linear-gradient(180deg, #1a0b2e, #090414); border: 1px solid rgba(168, 85, 247, 0.3);
+            border-radius: 16px; width: 90%; max-width: 1000px; max-height: 85vh; display: flex; flex-direction: column;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.7); overflow: hidden; animation: slideInDown 0.4s ease-out;
+        }
+        .modal-header {
+            padding: 20px 30px; border-bottom: 1px solid rgba(168,85,247,0.25); display: flex; justify-content: space-between; align-items: center; background: rgba(46, 16, 101, 0.5);
+        }
+        .modal-header h2 { font-size: 18px; color: #f3e8ff; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+        .close-modal {
+            background: transparent; border: none; color: #cbd5e1; font-size: 24px; cursor: pointer; transition: 0.2s;
+        }
+        .close-modal:hover { color: #ef4444; transform: scale(1.1); }
+        .modal-body { padding: 30px; overflow-y: auto; }
+        .modal-body::-webkit-scrollbar { width: 8px; }
+        .modal-body::-webkit-scrollbar-track { background: transparent; }
+        .modal-body::-webkit-scrollbar-thumb { background: rgba(168, 85, 247, 0.5); border-radius: 10px; }
+        
+        .doc-section-title { color: #c084fc; margin-bottom: 15px; font-size: 16px; border-bottom: 2px solid rgba(168,85,247,0.3); padding-bottom: 5px; margin-top: 25px;}
+        .doc-section-title:first-child { margin-top: 0; }
+        
+        .doc-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; background: rgba(0,0,0,0.3); border-radius: 8px; overflow: hidden; }
+        .doc-table th { background: rgba(46, 16, 101, 0.7); padding: 12px; text-align: left; font-size: 12px; color: #e9d5ff; text-transform: uppercase; }
+        .doc-table td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 13px; color: #cbd5e1; }
+        .doc-table tr:hover { background: rgba(168,85,247,0.08); }
+    </style>
+</head>
+<body>
+
+    <div class="particles">
+        <div class="particle" style="left: 10%; animation-delay: 0s;">{ }</div>
+        <div class="particle" style="left: 30%; animation-delay: 2s; font-size: 30px;">;</div>
+        <div class="particle" style="left: 50%; animation-delay: 5s;">( )</div>
+        <div class="particle" style="left: 70%; animation-delay: 1s; font-size: 35px;">&lt; &gt;</div>
+        <div class="particle" style="left: 85%; animation-delay: 4s;">int</div>
+    </div>
+
+    <img src="{{ url_for('static', filename='logotecnm.png') }}" class="bg-watermark" alt="">
+
+    <header>
+        <div class="header-content" style="justify-content: space-between; width: 100%;">
+            <div style="display: flex; align-items: center; gap: 20px;">
+                <img src="{{ url_for('static', filename='logotecnm.png') }}" alt="TecNM" class="header-logo">
+                <div class="header-text">
+                    <h1>Analizador Léxico y Sintáctico</h1>
+                    <div class="subtitle">Instituto Tecnológico de Villahermosa | Lenguajes y Autómatas II</div>
+                </div>
+            </div>
+            <button id="btn-docs" class="btn-action" style="max-width: 200px; padding: 10px 20px; background: rgba(168, 85, 247, 0.2); border-color: rgba(168, 85, 247, 0.5);">
+                📖 Tabla del Lenguaje
+            </button>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- GALERÍA DE EJEMPLOS -->
+        <div class="panel">
+            <div class="panel-header"><span>📚</span> Galería de Ejemplos</div>
+            <div class="panel-body">
+                <div class="example-card" onclick="cargarEjemplo('basico')">
+                    <h4>Declaración Simple</h4>
+                    <p>Tipos de datos y asignación básica.</p>
+                </div>
+                <div class="example-card" onclick="cargarEjemplo('bucle')">
+                    <h4>Estructura For</h4>
+                    <p>Análisis de bucles e incrementos.</p>
+                </div>
+                <div class="example-card" onclick="cargarEjemplo('funcion')">
+                    <h4>Función Principal</h4>
+                    <p>Definición de bloques y retornos.</p>
+                </div>
+                <div class="example-card" onclick="cargarEjemplo('errores')">
+                    <h4>Prueba de Errores</h4>
+                    <p>Errores léxicos y sintácticos para prueba.</p>
+                </div>
+                <div class="example-card" onclick="cargarEjemplo('becas')" style="border-color: rgba(16, 185, 129, 0.3);">
+                    <h4 style="color: #34d399;">Evaluación de Becas</h4>
+                    <p>Script completo con I/O, operadores lógicos y múltiples condicionales.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- EDITOR DE CÓDIGO -->
+        <div class="panel">
+            <div class="panel-header">
+                <div><span>💻</span> Editor de Código</div>
+            </div>
+            <div class="panel-body">
+                <form id="analyze-form" class="editor-form">
+                    
+                    <textarea id="editor" placeholder="// Ingresa el código fuente aquí..."></textarea>
+                    
+                    <!-- Input invisible exclusivo para archivos .txt -->
+                    <input type="file" id="fileInput" accept=".txt,text/plain" style="display: none;">
+
+                    <div class="button-group">
+                        <button type="submit" class="btn-analyze" id="btn-submit">
+                            <span class="spinner" id="btn-spinner"></span>
+                            <span id="btn-text">Ejecutar Análisis</span>
+                        </button>
+                        
+                        <button type="button" class="btn-action" id="btn-upload" title="Subir archivo de texto (.txt)">
+                            📁 Subir .TXT
+                        </button>
+
+                        <button type="button" class="btn-action" id="btn-clear" title="Limpiar todo">
+                            🗑️
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- RESULTADOS DEL ANÁLISIS -->
+        <div class="panel" style="padding-bottom: 0;"> 
+            <div class="panel-header">
+                <span>📊</span> Resultados del Análisis
+            </div>
+            <div class="panel-body" style="padding-bottom: 20px;">
+                
+                <div class="statistics">
+                    <div class="stat-box">
+                        <div class="stat-value" id="stat-total">0</div>
+                        <div class="stat-label">Total Tokens</div>
+                    </div>
+                    <div class="stat-box error-box">
+                        <div class="stat-value" id="stat-errors" style="color: #f87171;">0</div>
+                        <div class="stat-label">Errores</div>
+                    </div>
+                </div>
+
+                <!-- CONTADORES SEPARADOS -->
+                <div class="detailed-stats">
+                    <span class="detail-badge" id="count-keywords" style="color: #93c5fd; border-color: rgba(59, 130, 246, 0.3);">0 Reservadas</span>
+                    <span class="detail-badge" id="count-identifiers" style="color: #e879f9; border-color: rgba(192, 132, 252, 0.3);">0 Identificadores</span>
+                    <span class="detail-badge" id="count-literals" style="color: #86efac; border-color: rgba(34, 197, 94, 0.3);">0 Literales</span>
+                    <span class="detail-badge" id="count-operators" style="color: #fcd34d; border-color: rgba(245, 158, 11, 0.3);">0 Operadores</span>
+                    <span class="detail-badge" id="count-delimiters" style="color: #cbd5e1; border-color: rgba(148, 163, 184, 0.3);">0 Delimitadores</span>
+                    <span class="detail-badge" id="count-structures" style="color: #d8b4fe; border-color: rgba(168, 85, 247, 0.45);">0 Estructuras</span>
+                </div>
+
+                <div class="filter-bar" id="filter-container">
+                    <div class="filter-group">
+                        <button class="filter-btn active" data-filter="all">Todos</button>
+                        <button class="filter-btn" data-filter="keyword">Reservadas</button>
+                        <button class="filter-btn" data-filter="identifier">Identif.</button>
+                        <button class="filter-btn" data-filter="literal">Literales</button>
+                        <button class="filter-btn" data-filter="operator">Operadores</button>
+                        <button class="filter-btn" data-filter="delimiter">Delim.</button>
+                        <button class="filter-btn" data-filter="error">Errores</button>
+                    </div>
+                    <div style="display: flex; gap: 6px; align-items: center;">
+                        <button class="btn-export" id="btn-pdf" type="button" style="background: rgba(217, 70, 239, 0.2); color: #f0abfc; border-color: rgba(217, 70, 239, 0.4);">📄 Descargar AST (PDF)</button>
+                        <button class="btn-export" id="btn-export" type="button">📥 CSV</button>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table class="tokens-table">
+                        <thead>
+                            <tr>
+                                <th width="12%">Lín.</th>
+                                <th width="28%">Tipo</th>
+                                <th width="60%">Lexema / Detalle (Clic para buscar)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="token-body">
+                            <tr>
+                                <td colspan="3" style="text-align: center; color: #94a3b8; padding: 40px; font-family: 'Poppins', sans-serif;">Esperando código fuente...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL DE DOCUMENTACIÓN -->
+    <div id="docs-modal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📖 Documentación del Analizador Léxico y Sintáctico</h2>
+                <button class="close-modal" id="close-docs">&times;</button>
+            </div>
+            <div class="modal-body">
+                
+                <h3 class="doc-section-title">Palabras Reservadas y Tipos</h3>
+                <table class="doc-table">
+                    <thead>
+                        <tr><th>Palabra</th><th>Token</th><th>Función</th><th>Ventajas / Desventajas</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>int</td><td><span class="tag tag-keyword">INT</span></td><td>Declaración de variables numéricas enteras.</td><td>Sintaxis estándar universal / No permite cálculos con precisión decimal.</td></tr>
+                        <tr><td>float</td><td><span class="tag tag-keyword">FLOAT</span></td><td>Declaración de variables numéricas de punto flotante.</td><td>Permite cálculos decimales / Errores de precisión flotante.</td></tr>
+                        <tr><td>bool</td><td><span class="tag tag-keyword">BOOL</span></td><td>Declaración de valores lógicos de verdadero o falso.</td><td>Ahorra recursos (1 bit) / Limitado a dos estados.</td></tr>
+                        <tr><td>string</td><td><span class="tag tag-keyword">STRING_TYPE</span></td><td>Declaración de cadenas de texto.</td><td>Facilita almacenamiento de oraciones / Consume más memoria.</td></tr>
+                        <tr><td>void</td><td><span class="tag tag-keyword">VOID</span></td><td>Indica la ausencia de un tipo de dato o valor de retorno.</td><td>Evita exigir retorno / No almacena información.</td></tr>
+                        <tr><td>if / else</td><td><span class="tag tag-keyword">IF</span> / <span class="tag tag-keyword">ELSE</span></td><td>Estructura de control condicional principal y alternativa.</td><td>Universal y directo / Puede generar código espagueti.</td></tr>
+                        <tr><td>while</td><td><span class="tag tag-keyword">WHILE</span></td><td>Ciclo iterativo basado en una condición booleana.</td><td>Ideal sin conocer iteraciones / Riesgo de bucles infinitos.</td></tr>
+                        <tr><td>for</td><td><span class="tag tag-keyword">FOR</span></td><td>Ciclo iterativo controlado por un contador.</td><td>Concentra inicialización en 1 línea / Sintaxis más rígida.</td></tr>
+                        <tr><td>return</td><td><span class="tag tag-keyword">RETURN</span></td><td>Devuelve un valor procesado y sale de una función.</td><td>Salidas limpias / Detiene código inferior.</td></tr>
+                        <tr><td>print</td><td><span class="tag tag-keyword">PRINT</span></td><td>Imprime datos o mensajes en la consola.</td><td>Salida rápida de información / No formatea texto nativo.</td></tr>
+                        <tr><td>read_int</td><td><span class="tag tag-keyword">READ_INT</span></td><td>Lee la entrada de teclado como número entero.</td><td>Evita conversiones manuales / Error si se ingresan letras.</td></tr>
+                        <tr><td>read_float</td><td><span class="tag tag-keyword">READ_FLOAT</span></td><td>Lee la entrada de teclado como número decimal.</td><td>Ideal para capturar promedios / Vulnerable a formatos no numéricos.</td></tr>
+                        <tr><td>true / false</td><td style="white-space: nowrap;"><span class="tag tag-keyword">TRUE</span> / <span class="tag tag-keyword">FALSE</span></td><td>Literales lógicos de estado.</td><td>Lectura natural para el programador / No pueden utilizarse para operaciones matemáticas directas.</td></tr>
+                        <tr><td>switch</td><td><span class="tag tag-keyword">SWITCH</span></td><td>Estructura de control de selección múltiple.</td><td>Simplifica la lectura frente a múltiples bloques if-else / Requiere manejo de casos específicos y suele necesitar break.</td></tr>
+                    </tbody>
+                </table>
+
+                <h3 class="doc-section-title">Detalles Técnicos: Expresiones Regulares (Fase Léxica)</h3>
+                <table class="doc-table">
+                    <thead>
+                        <tr><th>Categoría</th><th>Token</th><th>Expresión Regular</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Identificadores</td><td><span class="tag tag-identifier">IDENTIFIER</span></td><td style="font-family: 'Fira Code', monospace; color: #86efac;">[a-zA-Z_]\w*</td></tr>
+                        <tr><td>Literales Numéricos</td><td><span class="tag tag-literal">INTEGER</span> / <span class="tag tag-literal">REAL</span></td><td style="font-family: 'Fira Code', monospace; color: #86efac;">\d+ , \d+\.\d+</td></tr>
+                        <tr><td>Literales de Texto</td><td><span class="tag tag-literal">STRING</span></td><td style="font-family: 'Fira Code', monospace; color: #86efac;">"([^"\\]|\\.)*"</td></tr>
+                        <tr>
+                        <td>Operadores Simples</td>
+                        <td>
+                            <span class="tag tag-operator" style="cursor: help;" title="PLUS, MINUS, MULTIPLY, DIVIDE, ASSIGN, MODULO, LESS_THAN, GREATER_THAN, LOGICAL_NOT">PLUS, MINUS, MULTIPLY...</span>
+                        </td>
+                        <td style="font-family: 'Fira Code', monospace; color: #86efac;">\+, -, \*, /, =, %, &lt;, &gt;, !</td>
+                        </tr>
+                        <tr>
+                        <td>Operadores Dobles</td>
+                        <td>
+                            <span class="tag tag-operator" style="cursor: help;" title="EQUAL, NOT_EQUAL, LESS_EQUAL, GREATER_EQUAL, LOGICAL_AND, LOGICAL_OR">EQUAL, NOT_EQUAL...</span>
+                        </td>
+                        <td style="font-family: 'Fira Code', monospace; color: #86efac;">==, !=, &lt;=, &gt;=, &amp;&amp;, ||</td>
+                        </tr>
+                        <tr>
+                        <td>Delimitadores</td>
+                        <td>
+                            <span class="tag tag-delimiter" style="cursor: help;" title="LPAREN, RPAREN, LBRACE, RBRACE, LBRACKET, RBRACKET, SEMICOLON, COMMA, DOT, COLON">LPAREN, RBRACE, SEMICOLON...</span>
+                        </td>
+                        <td style="font-family: 'Fira Code', monospace; color: #86efac;">\(,\), \{, \}, \[,\], ;, ,, \., :</td>
+                        </tr>
+                        <tr><td>Comentarios</td><td><span class="tag" style="background: #475569;">COMMENT</span></td><td style="font-family: 'Fira Code', monospace; color: #86efac;">//.* , /\*[\s\S]*?\*/</td></tr>
+                    </tbody>
+                </table>
+
+                <h3 class="doc-section-title">Reglas Gramaticales: Producciones BNF (Fase Sintáctica)</h3>
+                <table class="doc-table">
+                    <thead>
+                        <tr><th>Estructura Sintáctica</th><th>Regla de Producción (GLC)</th><th>Ejemplo Válido</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Declaración de Variable</td><td style="font-family: 'Fira Code', monospace; color: #d8b4fe;">&lt;Tipo&gt; IDENTIFIER ( "=" &lt;Expresion&gt; )? ";"</td><td style="font-family: 'Fira Code', monospace;">int aceptados = 0;</td></tr>
+                        <tr><td>Declaración de Función</td><td style="font-family: 'Fira Code', monospace; color: #d8b4fe;">&lt;Tipo&gt; IDENTIFIER "(" &lt;Parametros&gt; ")" &lt;Bloque&gt;</td><td style="font-family: 'Fira Code', monospace;">void main() { ... }</td></tr>
+                        <tr><td>Asignación y Lectura</td><td style="font-family: 'Fira Code', monospace; color: #d8b4fe;">IDENTIFIER "=" ( &lt;Expresion&gt; | read_int() | read_float() ) ";"</td><td style="font-family: 'Fira Code', monospace;">v_edad = read_int();</td></tr>
+                        <tr><td>Condicional IF / ELSE</td><td style="font-family: 'Fira Code', monospace; color: #d8b4fe;">"if" "(" &lt;Expresion&gt; ")" &lt;Bloque&gt; ( "else" &lt;Bloque&gt; )?</td><td style="font-family: 'Fira Code', monospace;">if (x &gt; 5) { ... }</td></tr>
+                        <tr><td>Ciclo WHILE</td><td style="font-family: 'Fira Code', monospace; color: #d8b4fe;">"while" "(" &lt;Expresion&gt; ")" &lt;Bloque&gt;</td><td style="font-family: 'Fira Code', monospace;">while (i &lt; 5) { ... }</td></tr>
+                        <tr><td>Ciclo FOR</td><td style="font-family: 'Fira Code', monospace; color: #d8b4fe;">"for" "(" &lt;Init&gt; &lt;Cond&gt; ";" &lt;Inc&gt; ")" &lt;Bloque&gt;</td><td style="font-family: 'Fira Code', monospace;">for (int i = 0; i &lt; 10; i = i + 1) { ... }</td></tr>
+                        <tr><td>Impresión (I/O)</td><td style="font-family: 'Fira Code', monospace; color: #d8b4fe;">"print" "(" &lt;Expresion&gt; ")" ";"</td><td style="font-family: 'Fira Code', monospace;">print("Hola");</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var editorCM = CodeMirror.fromTextArea(document.getElementById("editor"), {
+            mode: "text/x-csrc",
+            theme: "dracula",
+            lineNumbers: true,
+            matchBrackets: true,
+            indentUnit: 4,
+            lineWrapping: true
+        });
+
+        let globalTokens = [];
+        let globalErrors = [];
+        let currentFilter = 'all';
+
+        const ejemplosCode = {
+            'basico': 'int x = 10;\nfloat y = 20.5;\nstring name = "ITVH";',
+            'bucle': 'for (int i = 0; i < 10; i = i + 1) {\n    sum = sum + i;\n}',
+            'funcion': 'void main() {\n    if (x > 0) {\n        return true;\n    }\n}',
+            'errores': 'int x$ = 10@\nif (x > 5 {\n    float y = 3.14#;\n}',
+            'becas': '// Programa de evaluacion de becas\nint aceptados = 0;\nint rech_edad = 0;\nint rech_ingreso = 0;\nint rech_promedio = 0;\nint i = 0;\nint v_edad = 0;\nfloat v_ingreso = 0.0;\nfloat v_promedio = 0.0;\n\nwhile (i < 5) {\n    print("--- Datos Alumno ---");\n    \n    // Asumimos funciones de lectura para los inputs\n    v_edad = read_int();\n    v_ingreso = read_float();\n    v_promedio = read_float();\n    \n    // Evaluacion usando operadores logicos (||) y relacionales (<=, >=)\n    if (v_edad <= 18 || v_edad >= 25) {\n        rech_edad = rech_edad + 1;\n        print("Rechazado por: Edad");\n    } else {\n        // Comprobacion de ingresos usando tipo float\n        if (v_ingreso >= 5000.0) {\n            rech_ingreso = rech_ingreso + 1;\n            print("Rechazado por: Ingreso");\n        } else {\n            if (v_promedio < 90.0 || v_promedio > 100.0) {\n                rech_promedio = rech_promedio + 1;\n                print("Rechazado por: Promedio");\n            } else {\n                aceptados = aceptados + 1;\n                print("Estatus: ACEPTADO");\n            }\n        }\n    }\n    \n    // Incremento del contador de ciclo\n    i = i + 1;\n}\n\nprint("--- REPORTE FINAL ---");\nprint("Total Aceptados:");\nprint(aceptados);\nprint("Rechazados por Edad:");\nprint(rech_edad);\nprint("Rechazados por Ingreso:");\nprint(rech_ingreso);\nprint("Rechazados por Promedio:");\nprint(rech_promedio);'
+        };
+
+        function cargarEjemplo(tipo) {
+            editorCM.setValue(ejemplosCode[tipo]);
+            editorCM.focus();
+            document.getElementById('analyze-form').requestSubmit();
+        }
+
+        function limpiarResultados() {
+            document.getElementById('stat-total').innerText = '0';
+            document.getElementById('stat-errors').innerText = '0';
+            
+            document.getElementById('count-keywords').innerText = '0 Reservadas';
+            document.getElementById('count-identifiers').innerText = '0 Identificadores';
+            document.getElementById('count-literals').innerText = '0 Literales';
+            document.getElementById('count-operators').innerText = '0 Operadores';
+            document.getElementById('count-delimiters').innerText = '0 Delimitadores';
+            document.getElementById('count-structures').innerText = '0 Estructuras';
+            
+            globalTokens = [];
+            globalErrors = [];
+            
+            document.getElementById('token-body').innerHTML = `
+                <tr>
+                    <td colspan="3" style="text-align: center; color: #94a3b8; padding: 40px; font-family: 'Poppins', sans-serif;">
+                        Esperando código fuente...
+                    </td>
+                </tr>`;
+        }
+
+        document.getElementById('btn-clear').addEventListener('click', function() {
+            editorCM.setValue('');
+            limpiarResultados();
+            editorCM.focus();
+        });
+
+        editorCM.on('change', function() {
+            if (!editorCM.getValue().trim()) {
+                limpiarResultados();
+            }
+        });
+
+        document.getElementById('btn-upload').addEventListener('click', function() {
+            document.getElementById('fileInput').click();
+        });
+
+        document.getElementById('fileInput').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!file.name.toLowerCase().endsWith('.txt')) {
+                alert("Por favor, selecciona únicamente un archivo con extensión .txt");
+                event.target.value = '';
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                editorCM.setValue(e.target.result);
+                editorCM.focus();
+                document.getElementById('analyze-form').requestSubmit();
+            };
+            reader.onerror = function() {
+                alert("Hubo un error al intentar leer el archivo .txt");
+            };
+            reader.readAsText(file, 'UTF-8');
+            event.target.value = ''; 
+        });
+
+        document.getElementById('btn-export').addEventListener('click', function() {
+            if(globalTokens.length === 0 && globalErrors.length === 0) {
+                alert("Primero debes analizar código para exportar."); return;
+            }
+            let csvContent = "data:text/csv;charset=utf-8,Linea,Tipo,Detalle_o_Lexema,Categoria\n";
+            globalErrors.forEach(e => { 
+                let msg = (e.message || e.char || "").replace(/"/g, '""');
+                let tipoErr = e.type ? `ERROR_${e.type.toUpperCase()}` : "ERROR";
+                csvContent += `${e.line},${tipoErr},"${msg}",error\n`; 
+            });
+            globalTokens.forEach(t => { 
+                let safeValue = t.value.replace(/"/g, '""'); 
+                csvContent += `${t.line},${t.type},"${safeValue}",${t.category}\n`; 
+            });
+            var encodedUri = encodeURI(csvContent);
+            var link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "Reporte_Analisis_Lexico_Sintactico.csv");
+            document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        });
+
+        function resaltarEnEditor(linea, columna, longitud) {
+            let l = linea - 1; let c = (columna || 1) - 1;
+            editorCM.focus();
+            editorCM.setSelection({line: l, ch: c}, {line: l, ch: c + longitud});
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('token-body');
+            tbody.innerHTML = '';
+            let filteredTokens = globalTokens;
+            let filteredErrors = globalErrors;
+
+            if (currentFilter !== 'all') {
+                if (currentFilter === 'error') {
+                    filteredTokens = [];
+                } else {
+                    filteredTokens = globalTokens.filter(t => t.category === currentFilter);
+                    filteredErrors = [];
+                }
+            }
+
+            if(filteredTokens.length === 0 && filteredErrors.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding: 30px; color: #94a3b8;">No hay resultados para este filtro.</td></tr>`;
+                return;
+            }
+
+            filteredErrors.forEach(err => {
+                let col = err.column || 1; 
+                let len = (err.char && err.char.length < 25) ? err.char.length : 1;
+                let displayMsg = err.message || err.char;
+                let badgeLabel = err.type ? `ERROR ${err.type.toUpperCase()}` : 'ERROR';
+
+                tbody.innerHTML += `
+                    <tr style="background: rgba(239, 68, 68, 0.1);" onclick="resaltarEnEditor(${err.line}, ${col}, ${len})" title="Clic para resaltar en el código">
+                        <td>${err.line}</td>
+                        <td><span class="tag tag-error">${badgeLabel}</span></td>
+                        <td style="color:#fca5a5; font-weight: bold;">${displayMsg}</td>
+                    </tr>`;
+            });
+
+            filteredTokens.forEach(t => {
+                let tagClass = "tag-literal"; 
+                if(t.category === 'keyword') tagClass = "tag-keyword"; 
+                if(t.category === 'identifier') tagClass = "tag-identifier"; 
+                if(t.category === 'operator') tagClass = "tag-operator"; 
+                if(t.category === 'delimiter') tagClass = "tag-delimiter";
+                
+                let col = t.column || 1; let len = t.value ? t.value.length : 1;
+                tbody.innerHTML += `
+                    <tr onclick="resaltarEnEditor(${t.line}, ${col}, ${len})" title="Clic para resaltar">
+                        <td>${t.line}</td>
+                        <td><span class="tag ${tagClass}">${t.type}</span></td>
+                        <td style="color:#e2e8f0;">${t.value}</td>
+                    </tr>`;
+            });
+        }
+
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                currentFilter = this.getAttribute('data-filter');
+                renderTable();
+            });
+        });
+
+        document.getElementById('analyze-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const code = editorCM.getValue();
+            const tbody = document.getElementById('token-body');
+            const btnText = document.getElementById('btn-text');
+            const spinner = document.getElementById('btn-spinner');
+
+            if(!code.trim()) return;
+
+            btnText.innerText = "Procesando..."; spinner.style.display = "block";
+            tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding: 30px; color: #94a3b8;">Ejecutando análisis léxico y sintáctico...</td></tr>';
+
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: code })
+                });
+                const data = await response.json();
+                
+                setTimeout(() => {
+                    if(data.success) {
+                        data.tokens.forEach(t => {
+                            if(t.type && t.type.toUpperCase() === 'IDENTIFIER') {
+                                t.category = 'identifier';
+                            }
+                        });
+
+                        let stats = { keywords: 0, identifiers: 0, literals: 0, operators: 0, delimiters: 0 };
+                        data.tokens.forEach(t => {
+                            if(t.category === 'keyword') stats.keywords++;
+                            else if(t.category === 'identifier') stats.identifiers++;
+                            else if(t.category === 'literal') stats.literals++;
+                            else if(t.category === 'operator') stats.operators++;
+                            else if(t.category === 'delimiter') stats.delimiters++;
+                        });
+
+                        document.getElementById('stat-total').innerText = data.tokens.length;
+                        document.getElementById('stat-errors').innerText = data.errors.length;
+                        
+                        document.getElementById('count-keywords').innerText = `${stats.keywords} Reservadas`;
+                        document.getElementById('count-identifiers').innerText = `${stats.identifiers} Identificadores`;
+                        document.getElementById('count-literals').innerText = `${stats.literals} Literales`;
+                        document.getElementById('count-operators').innerText = `${stats.operators} Operadores`;
+                        document.getElementById('count-delimiters').innerText = `${stats.delimiters} Delimitadores`;
+                        document.getElementById('count-structures').innerText = `${(data.structures || []).length} Estructuras`;
+
+                        globalTokens = data.tokens; globalErrors = data.errors;
+                        
+                        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                        document.querySelector('.filter-btn[data-filter="all"]').classList.add('active');
+                        currentFilter = 'all';
+
+                        renderTable();
+                    }
+                    btnText.innerText = "Ejecutar Análisis"; spinner.style.display = "none";
+                }, 300);
+
+            } catch (error) {
+                tbody.innerHTML = '<tr><td colspan="3" style="color:#ef4444; text-align:center; padding: 30px;">Error al conectar con la API.</td></tr>';
+                btnText.innerText = "Ejecutar Análisis"; spinner.style.display = "none";
+            }
+        });
+
+        const modalDocs = document.getElementById('docs-modal');
+        const btnDocs = document.getElementById('btn-docs');
+        const closeDocs = document.getElementById('close-docs');
+
+        btnDocs.addEventListener('click', function() {
+            modalDocs.style.display = 'flex';
+        });
+
+        closeDocs.addEventListener('click', function() {
+            modalDocs.style.display = 'none';
+        });
+
+        window.addEventListener('click', function(event) {
+            if (event.target === modalDocs) {
+                modalDocs.style.display = 'none';
+            }
+        });
+
+        document.getElementById('btn-pdf').addEventListener('click', async function() {
+            const code = editorCM.getValue();
+            if (!code.trim()) {
+                alert("El editor de código está vacío. Analiza un código primero.");
+                return;
+            }
+
+            const btnPdf = document.getElementById('btn-pdf');
+            const originalText = btnPdf.innerText;
+            btnPdf.disabled = true;
+            btnPdf.innerText = "⏳ Generando PDF...";
+
+            try {
+                const response = await fetch('/api/download_ast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code: code })
+                });
+
+                if (!response.ok) {
+                    alert("Ocurrió un error al generar el PDF del árbol sintáctico.");
+                    return;
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'Arbol_Sintactico_ITVH.pdf';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                alert("Error de conexión al intentar descargar el PDF.");
+            } finally {
+                btnPdf.disabled = false;
+                btnPdf.innerText = originalText;
+            }
+        });
+    </script>
+</body>
+</html>
